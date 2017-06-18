@@ -377,7 +377,7 @@ else:
                 # to build_ui.finalize_options load the configuration.
                 with open('pyuic.json.in') as fp:
                     cfg = json.load(fp)
-                for opt in 'pyrcc pyuic'.split():
+                for opt in ['pyrcc', 'pyuic']:
                     cfg[opt] = cfg[opt].replace('$PYTHON', sys.executable)
                 with open('pyuic.json', 'w') as fp:
                     json.dump(cfg, fp)
