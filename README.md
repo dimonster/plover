@@ -80,9 +80,9 @@ Plover is cross-platform and has separate build instructions for each platform.
 
 Please follow through for your system:
 
-- [Windows](windows)
-- [Linux](linux)
-- [Mac](osx)
+- [Windows](windows/README.md)
+- [Linux](linux/README.md)
+- [Mac](osx/README.md)
 
 [blog]: http://plover.stenoknight.com
 [discord]: https://discord.gg/0lQde43a6dGmAMp2
