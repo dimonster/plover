@@ -17,7 +17,6 @@ from plover.resource import resource_filename
 from plover.gui_qt.log_qt import NotificationHandler
 from plover.gui_qt.main_window_ui import Ui_MainWindow
 from plover.gui_qt.config_window import ConfigWindow
-from plover.gui_qt.dictionaries_widget import DictionariesWidget
 from plover.gui_qt.about_dialog import AboutDialog
 from plover.gui_qt.trayicon import TrayIcon
 from plover.gui_qt.utils import WindowState, find_menu_actions
@@ -28,7 +27,7 @@ class MainWindow(QMainWindow, Ui_MainWindow, WindowState):
     ROLE = 'main'
 
     def __init__(self, engine, use_qt_notifications):
-        super(MainWindow, self).__init__()
+        super().__init__()
         self.setupUi(self)
         if hasattr(self, 'setUnifiedTitleAndToolBarOnMac'):
             self.setUnifiedTitleAndToolBarOnMac(True)
@@ -38,17 +37,15 @@ class MainWindow(QMainWindow, Ui_MainWindow, WindowState):
             'about'             : AboutDialog,
             'configuration'     : ConfigWindow,
         }
-        self.action_Quit.triggered.connect(QCoreApplication.quit)
         all_actions = find_menu_actions(self.menubar)
         # Dictionaries.
-        self.dictionaries = DictionariesWidget(engine)
+        self.dictionaries = self.scroll_area.widget()
         self.dictionaries.add_translation.connect(self._add_translation)
-        self.scroll_area.setWidget(self.dictionaries)
         self.dictionaries.setFocus()
         edit_menu = all_actions['menu_Edit'].menu()
         edit_menu.addAction(self.dictionaries.action_Undo)
         edit_menu.addSeparator()
-        edit_menu.addAction(self.dictionaries.action_AddDictionaries)
+        edit_menu.addMenu(self.dictionaries.menu_AddDictionaries)
         edit_menu.addAction(self.dictionaries.action_EditDictionaries)
         edit_menu.addAction(self.dictionaries.action_RemoveDictionaries)
         edit_menu.addSeparator()
@@ -82,6 +79,8 @@ class MainWindow(QMainWindow, Ui_MainWindow, WindowState):
                 popup_menu.addSeparator()
         self._trayicon.set_menu(popup_menu)
         engine.signal_connect('machine_state_changed', self._trayicon.update_machine_state)
+        engine.signal_connect('quit', self.on_quit)
+        self.action_Quit.triggered.connect(engine.quit)
         # Populate tools bar/menu.
         tools_menu = all_actions['menu_Tools'].menu()
         # Toolbar popup menu for selecting which tools are shown.
@@ -170,7 +169,7 @@ class MainWindow(QMainWindow, Ui_MainWindow, WindowState):
             def on_finished():
                 del self._active_dialogs[name]
                 dialog.deleteLater()
-                if manage_windows:
+                if manage_windows and previous_window is not None:
                     wmctrl.SetForegroundWindow(previous_window)
             dialog.finished.connect(on_finished)
         dialog.show()
@@ -254,14 +253,13 @@ class MainWindow(QMainWindow, Ui_MainWindow, WindowState):
         self.save_state()
         self._trayicon.disable()
         self.hide()
+        QCoreApplication.quit()
 
     def on_show(self):
         self._focus()
 
     def closeEvent(self, event):
-        if self._trayicon.is_enabled():
-            self.hide()
-            event.ignore()
-        else:
-            QCoreApplication.quit()
-            event.accept()
+        self.hide()
+        if not self._trayicon.is_enabled():
+            self._engine.quit()
+        event.ignore()

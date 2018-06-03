@@ -13,9 +13,9 @@ from PyQt5.QtWidgets import (
 )
 
 from plover.suggestions import Suggestion
+from plover.formatting import RetroFormatter
 
 from plover.gui_qt.suggestions_dialog_ui import Ui_SuggestionsDialog
-from plover.gui_qt.suggestions_widget import SuggestionsWidget
 from plover.gui_qt.i18n import get_gettext
 from plover.gui_qt.utils import ToolBar
 from plover.gui_qt.tool import Tool
@@ -33,7 +33,7 @@ class SuggestionsDialog(Tool, Ui_SuggestionsDialog):
     ROLE = 'suggestions'
     SHORTCUT = 'Ctrl+J'
 
-    WORDS_RX = re.compile(r'[-\'"\w]+|[^\w\s]')
+    WORD_RX = re.compile(r'(?:\w+|[^\w\s]+)\s*')
 
     STYLE_TRANSLATION, STYLE_STROKES = range(2)
 
@@ -44,12 +44,8 @@ class SuggestionsDialog(Tool, Ui_SuggestionsDialog):
     #    - 1-10 "strokes" frames
 
     def __init__(self, engine):
-        super(SuggestionsDialog, self).__init__(engine)
+        super().__init__(engine)
         self.setupUi(self)
-        suggestions = SuggestionsWidget()
-        self.layout().replaceWidget(self.suggestions, suggestions)
-        self.suggestions = suggestions
-        self._words = u''
         self._last_suggestions = None
         # Toolbar.
         self.layout().addWidget(ToolBar(
@@ -120,26 +116,23 @@ class SuggestionsDialog(Tool, Ui_SuggestionsDialog):
             yield ls[i:]
 
     def on_translation(self, old, new):
-        for action in old:
-            remove = len(action.text)
-            if remove > 0:
-                self._words = self._words[:-remove]
-            self._words = self._words + action.replace
 
-        for action in new:
-            remove = len(action.replace)
-            if remove > 0:
-                self._words = self._words[:-remove]
-            self._words = self._words + action.text
+        # Check for new output.
+        for a in reversed(new):
+            if a.text and not a.text.isspace():
+                break
+        else:
+            return
 
-        # Limit phrasing memory to 100 characters, because most phrases probably
-        # don't exceed this length
-        self._words = self._words[-100:]
+        # Get the last 10 words.
+        with self._engine:
+            last_translations = self._engine.translator_state.translations
+            retro_formatter = RetroFormatter(last_translations)
+            split_words = retro_formatter.last_words(10, rx=self.WORD_RX)
 
         suggestion_list = []
-        split_words = self.WORDS_RX.findall(self._words)
         for phrase in self.tails(split_words):
-            phrase = u' '.join(phrase)
+            phrase = ''.join(phrase)
             suggestion_list.extend(self._engine.get_suggestions(phrase))
 
         if not suggestion_list and split_words:

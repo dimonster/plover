@@ -2,33 +2,45 @@
 
 set -e
 
-. ./utils/functions.sh
+. ./plover_build_utils/functions.sh
+
+download()
+{
+  name="$1"
+  url="$2"
+  md5="$3"
+
+  dst="$downloads/$name"
+  for retry in $(seq 3)
+  do
+    if ! [ -r "$dst" ]
+    then
+      [ -d "$downloads" ] || run mkdir -p "$downloads"
+      if ! run curl --show-error --silent -o "$dst" "$url"
+      then
+        err "$name download failed"
+        run rm -f "$dst"
+        continue
+      fi
+    fi
+    if [ $opt_dry_run -eq 0 ] && [ "$(md5 -q "$dst")" != "$md5" ]
+    then
+      err "$name md5 did not match"
+      run rm -f "$dst"
+      continue
+    fi
+    return 0
+  done
+  return 1
+}
 
 setup()
 {
   # Install Python.
-  run mkdir -p "$downloads"
-  installer_url='https://www.python.org/ftp/python/3.5.3/python-3.5.3-macosx10.6.pkg'
-  installer_md5='6f9ee2ad1fceb1a7c66c9ec565e57102'
-  installer_pkg="$downloads/python35.pkg"
-  for retry in $(seq 3)
-  do
-    if ! [ -r "$dst" ] && ! run curl --show-error --silent -o "$installer_pkg" "$installer_url"
-    then
-      err "python download failed"
-      run rm -f "$installer_pkg"
-      continue
-    fi
-    if [ $opt_dry_run -eq 0 ] && [ "$(md5 -q "$installer_pkg")" != "$installer_md5" ]
-    then
-      err "python md5 did not match"
-      run rm -f "$installer_pkg"
-      continue
-    fi
-    break
-  done
-  run sudo installer -pkg "$installer_pkg" -target /
-
+  download 'python36.pkg' 'https://www.python.org/ftp/python/3.6.2/python-3.6.2-macosx10.6.pkg' '86e6193fd56b1e757fc8a5a2bb6c52ba'
+  run sudo installer -pkg "$downloads/python36.pkg" -target /
+  # Update certifiates.
+  run '/Applications/Python 3.6/Install Certificates.command'
   # Setup development environment.
   bootstrap_dev --user
 }
@@ -51,7 +63,7 @@ deploy()
   github_release_exe='./bin/darwin/amd64/github-release'
   github_release_opts=(--user openstenoproject --repo plover --tag "$("$python" ./setup.py --version)")
   run [ -r "$artifact" ]
-  run "$python" -m utils.download "$github_release_url" "$github_release_sha1" "$github_release"
+  run "$python" -m plover_build_utils.download "$github_release_url" "$github_release_sha1" "$github_release"
   run tar xvjf "$github_release"
   run "$github_release_exe" release "${github_release_opts[@]}" --draft
   run "$github_release_exe" upload "${github_release_opts[@]}" --file "$artifact" --name "${artifact#*/}"

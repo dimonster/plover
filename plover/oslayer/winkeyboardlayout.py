@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
 
-# Python 2/3 compatibility.
-from __future__ import print_function
-
 import sys
 import codecs
 import ctypes
@@ -329,7 +326,7 @@ DEAD_KEYNAME = {
 }
 
 
-class KeyboardLayout(object): # {{{
+class KeyboardLayout: # {{{
 
     def __init__(self, layout_id=None, debug=False):
         if layout_id is None:

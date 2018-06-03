@@ -5,7 +5,7 @@
 # $2: package name
 set -e
 
-. ./utils/functions.sh
+. ./plover_build_utils/functions.sh
 
 python='python3'
 osx_dir="$(dirname "$0")"
@@ -21,19 +21,16 @@ plover_version="$("$python" -c "from plover import __version__; print(__version_
 # Find system Python
 python3_bin_dir="$(python3 -c 'import os, sys; print(os.path.dirname(os.path.realpath(sys.executable)))')"
 python3_dir="$(dirname "$python3_bin_dir")"
-py_version="$(basename "$python3_dir")" # e.g. 3.5
+py_version="$(basename "$python3_dir")" # e.g. 3.6
 echo "System python3 is found at: $python3_dir"
 
 # App to build
 app_dir="$plover_dir/build/$PACKAGE.app"
-stripped_dir="$plover_dir/build/${PACKAGE}_stripped.app"
 app_dist_dir="$plover_dir/dist/Plover.app"
 
-rm -rf "$app_dir"
-rm -rf "$stripped_dir"
-rm -rf "$app_dist_dir"
+rm -rf "$app_dir"{,.fat} "$app_dist_dir"
 
-# E.g. python3.5 (name of python executable)
+# E.g. python3.6 (name of python executable)
 target_python="python${py_version}"
 # Main library folder in App
 target_dir="$app_dir/Contents/Frameworks"
@@ -58,12 +55,20 @@ rm -rf "$target_libs/site-packages"
 mkdir "$target_libs/site-packages"
 # Add sitecustomize.py -- adds the above site-packages to our Python's sys.path
 cp "$plover_dir/osx/app_resources/sitecustomize.py" "$target_libs/sitecustomize.py"
-# Disable user site-packages by changing a constant in site.py
-sed -ie 's/ENABLE_USER_SITE = None/ENABLE_USER_SITE = False/g' "$target_libs/site.py"
 
 # Switch to target Python.
 python="$PWD/$target_dir/$target_python"
 unset __PYVENV_LAUNCHER__
+
+run_eval "
+appdir_python()
+{
+  env \
+    PYTHONNOUSERSITE=1 \
+    "$PWD/$target_dir/$target_python" \"\$@\"
+}
+"
+python='appdir_python'
 
 # Install Plover and dependencies.
 bootstrap_dist "$plover_wheel"
@@ -103,11 +108,15 @@ rm "$target_dir/Python.framework/Python"
 rm "$target_dir/Python.framework/Resources"
 # Trim superfluous content from app
 sed -e "s/\$python_version/$py_version/" -e "s/\$target_python/$target_python/" osx/app_resources/dist_blacklist.txt > build/dist_blacklist.txt
-"$python" -m utils.trim "$target_dir/Python.framework" build/dist_blacklist.txt
+"$python" -m plover_build_utils.trim "$target_dir/Python.framework" build/dist_blacklist.txt
 # Make distribution source-less
-"$python" -m utils.source_less "$target_libs" "*/pip/_vendor/distlib/*"
+"$python" -m plover_build_utils.source_less "$target_libs" "*/pip/_vendor/distlib/*"
 
 # Strip 32-bit support
-ditto -v --arch x86_64 "$app_dir" "$stripped_dir"
+mv "$app_dir"{,.fat}
+ditto -v --arch x86_64 "$app_dir"{.fat,}
 
-mv "$stripped_dir" "$app_dist_dir"
+# Check requirements.
+run "$python" -I -m plover_build_utils.check_requirements
+
+mv "$app_dir" "$app_dist_dir"

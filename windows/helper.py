@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 
-# Python 2/3 compatibility.
-from __future__ import print_function
-
 import argparse
 import inspect
 import os
@@ -51,14 +48,14 @@ else:
 class CommandExecutionException(Exception):
 
     def __init__(self, args, exitcode, stdout='', stderr=''):
-        super(CommandExecutionException, self).__init__()
+        super().__init__()
         self.args = args
         self.exitcode = exitcode
         self.stdout = stdout
         self.stderr = stderr
 
 
-class Environment(object):
+class Environment:
 
     def __init__(self):
         self.dry_run = False
@@ -120,7 +117,7 @@ class Environment(object):
 class WineEnvironment(Environment):
 
     def __init__(self, prefix):
-        super(WineEnvironment, self).__init__()
+        super().__init__()
         self._prefix = os.path.abspath(prefix)
         self._env['WINEPREFIX'] = self._prefix
         self._env['WINEARCH'] = 'win32'
@@ -182,10 +179,10 @@ class WineEnvironment(Environment):
             cmd = ('wine',) + tuple(args)
         else:
             cmd = args
-        return super(WineEnvironment, self).run(cmd, cwd, redirection)
+        return super().run(cmd, cwd, redirection)
 
     def _get_env(self):
-        env = super(WineEnvironment, self)._get_env()
+        env = super()._get_env()
         for var in (
             'PYTHONPATH',
             # Make sure GTK environment variables don't spill over to the Wine environment.
@@ -211,7 +208,7 @@ class WineEnvironment(Environment):
 class Win32Environment(Environment):
 
     def __init__(self):
-        super(Win32Environment, self).__init__()
+        super().__init__()
         self._path = None
 
     def setup(self):
@@ -243,7 +240,7 @@ class Win32Environment(Environment):
             os.unlink(batch)
 
 
-class Helper(object):
+class Helper:
 
     DEPENDENCIES = (
         ('nsis', 'http://prdownloads.sourceforge.net/nsis/nsis-3.01-setup.exe',
@@ -424,7 +421,7 @@ class Helper(object):
         self._env.run(cmd)
 
     def _download(self, url, checksum):
-        from utils.download import DOWNLOADS_DIR, download
+        from plover_build_utils.download import DOWNLOADS_DIR, download
         if not self.dry_run:
             return download(url, checksum)
         return os.path.join(DOWNLOADS_DIR, os.path.basename(url))
@@ -474,8 +471,8 @@ class Helper(object):
         for name, src, checksum, handler_format, handler_args, path_dir in self.DEPENDENCIES:
             self.install(name, src, checksum, handler_format=handler_format, handler_args=handler_args, path_dir=path_dir)
         info('install requirements')
-        self._env.run(('python.exe', '-m', 'utils.get_pip', '--upgrade'))
-        self._env.run(('python.exe', '-m', 'utils.install_wheels', '-r', 'requirements.txt'))
+        self._env.run(('python.exe', '-m', 'plover_build_utils.get_pip', '--upgrade'))
+        self._env.run(('python.exe', '-m', 'plover_build_utils.install_wheels', '-r', 'requirements.txt'))
 
     def cmd_run(self, executable, *args):
         '''run command in environment
@@ -545,12 +542,12 @@ class Helper(object):
 class WineHelper(Helper):
 
     DEPENDENCIES = (
-        ('Python', 'https://www.python.org/ftp/python/3.5.2/python-3.5.2.exe',
-         '3873deb137833a724be8932e3ce659f93741c20b', None, ('PrependPath=1', '/S'), None),
+        ('Python', 'https://www.python.org/ftp/python/3.6.2/python-3.6.2.exe',
+         'cd9744b142eca832f9534390676e6cfb84bf655d', None, ('PrependPath=1', '/S'), None),
     ) + Helper.DEPENDENCIES
 
     def __init__(self):
-        super(WineHelper, self).__init__()
+        super().__init__()
         self._env = WineEnvironment(os.path.join(WIN_DIR, '.wine'))
 
     def cmd_run(self, executable, *args):
@@ -559,13 +556,13 @@ class WineHelper(Helper):
         executable: executable to run (the executable will be automatically run with Wine when it ends with ".exe")
         args: additional arguments to pass to the executable
         '''
-        super(WineHelper, self).cmd_run(executable, *args)
+        super().cmd_run(executable, *args)
 
 
 class Win32Helper(Helper):
 
     def __init__(self):
-        super(Win32Helper, self).__init__()
+        super().__init__()
         self._env = Win32Environment()
 
 

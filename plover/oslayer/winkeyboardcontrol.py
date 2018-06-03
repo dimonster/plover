@@ -17,16 +17,14 @@ import ctypes
 import multiprocessing
 import os
 import threading
+import winreg
 
 from ctypes import windll, wintypes
-
-# Python 2/3 compatibility.
-from six.moves import winreg
 
 from plover.key_combo import parse_key_combo
 from plover.oslayer.winkeyboardlayout import KeyboardLayout
 from plover import log
-from plover.misc import characters
+from plover.misc import to_surrogate_pair
 
 SendInput = windll.user32.SendInput
 LONG = ctypes.c_long
@@ -144,7 +142,7 @@ def pid_exists(pid):
 class HeartBeat(threading.Thread):
 
     def __init__(self, ppid, atexit):
-        super(HeartBeat, self).__init__()
+        super().__init__()
         self._ppid = ppid
         self._atexit = atexit
         self._finished = threading.Event()
@@ -162,14 +160,14 @@ class HeartBeat(threading.Thread):
 
 class KeyboardCaptureProcess(multiprocessing.Process):
 
-    CONTROL_KEYS = set((0xA2, 0xA3))
-    SHIFT_KEYS = set((0xA0, 0xA1))
-    ALT_KEYS = set((0xA4, 0xA5))
-    WIN_KEYS = set((0x5B, 0x5C))
+    CONTROL_KEYS = {0xA2, 0xA3}
+    SHIFT_KEYS = {0xA0, 0xA1}
+    ALT_KEYS = {0xA4, 0xA5}
+    WIN_KEYS = {0x5B, 0x5C}
     PASSTHROUGH_KEYS = CONTROL_KEYS | SHIFT_KEYS | ALT_KEYS | WIN_KEYS
 
     def __init__(self):
-        super(KeyboardCaptureProcess, self).__init__()
+        super().__init__()
         self.daemon = True
         self._ppid = os.getpid()
         self._update_registry()
@@ -304,7 +302,7 @@ class KeyboardCaptureProcess(multiprocessing.Process):
 
     def start(self):
         self.daemon = True
-        super(KeyboardCaptureProcess, self).start()
+        super().start()
         self._tid = self._queue.get()
 
     def stop(self):
@@ -329,7 +327,7 @@ class KeyboardCapture(threading.Thread):
     """Listen to all keyboard events."""
 
     def __init__(self):
-        super(KeyboardCapture, self).__init__()
+        super().__init__()
         self._suppressed_keys = set()
         self.key_down = lambda key: None
         self.key_up = lambda key: None
@@ -339,7 +337,7 @@ class KeyboardCapture(threading.Thread):
     def start(self):
         self._proc.start()
         self._proc.suppress_keyboard(self._suppressed_keys)
-        super(KeyboardCapture, self).start()
+        super().start()
 
     def run(self):
         while True:
@@ -359,7 +357,7 @@ class KeyboardCapture(threading.Thread):
         self._proc.suppress_keyboard(self._suppressed_keys)
 
 
-class KeyboardEmulation(object):
+class KeyboardEmulation:
 
     def __init__(self):
         self.keyboard_layout = KeyboardLayout()
@@ -425,8 +423,9 @@ class KeyboardEmulation(object):
             self.keyboard_layout = KeyboardLayout(layout_id)
 
     def _key_unicode(self, char):
-        inputs = [self._keyboard(ord(code), KEYEVENTF_UNICODE)
-                  for code in char]
+        pairs = to_surrogate_pair(char)
+        inputs = [self._keyboard(code, KEYEVENTF_UNICODE)
+                  for code in pairs]
         self._send_input(*inputs)
 
     def send_backspaces(self, number_of_backspaces):
@@ -435,7 +434,7 @@ class KeyboardEmulation(object):
 
     def send_string(self, s):
         self._refresh_keyboard_layout()
-        for char in characters(s):
+        for char in s:
             if char in self.keyboard_layout.char_to_vk_ss:
                 # We know how to simulate the character.
                 self._key_press(char)

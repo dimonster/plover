@@ -17,9 +17,6 @@ import codecs
 import inspect
 import re
 
-# Python 2/3 compatibility.
-from six import get_function_code
-
 from plover.steno import normalize_steno
 from plover.steno_dictionary import StenoDictionary
 # TODO: Move dictionary format somewhere more canonical than formatting.
@@ -32,14 +29,14 @@ DICT_ENTRY_PATTERN = re.compile(r'(?s)(?<!\\){\\\*\\cxs (?P<steno>[^}]+)}' +
                                 r'(?=(?:(?<!\\){\\\*\\cxs [^}]+})|' +
                                 r'(?:(?:(?<!\\)(?:\r\n|\n)\s*)*}\s*\Z))')
 
-class TranslationConverter(object):
+class TranslationConverter:
     """Convert an RTF/CRE translation into plover's internal format."""
     
     def __init__(self, styles={}):
         self.styles = styles
         
         def linenumber(f):
-            return get_function_code(f[1].__func__).co_firstlineno
+            return f[1].__code__.co_firstlineno
         
         handler_funcs = inspect.getmembers(self, inspect.ismethod)
         handler_funcs.sort(key=linenumber)
@@ -284,7 +281,7 @@ STYLESHEET_RE = re.compile(r'(?s){\\s([0-9]+).*?((?:\b\w+\b\s*)+);}')
 
 def load_stylesheet(s):
     """Returns a dictionary mapping a number to a style name."""
-    return dict((int(k), v) for k, v in STYLESHEET_RE.findall(s))
+    return {int(k): v for k, v in STYLESHEET_RE.findall(s)}
 
 HEADER = ("{\\rtf1\\ansi{\\*\\cxrev100}\\cxdict{\\*\\cxsystem Plover}" +
           "{\\stylesheet{\\s0 Normal;}}\r\n")

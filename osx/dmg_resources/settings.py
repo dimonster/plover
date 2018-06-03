@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-from __future__ import unicode_literals
 
 import biplist
 import os.path
@@ -19,7 +18,6 @@ def icon_from_app(app_path):
     return os.path.join(app_path, 'Contents', 'Resources', icon_name)
 
 format = defines.get('format', 'UDBZ')
-size = defines.get('size', '100M')
 
 # Files to include
 files = [application]

@@ -4,64 +4,70 @@
 
 """Unit tests for json.py."""
 
-import unittest
+import inspect
+
+import pytest
 
 from plover.dictionary.json_dict import JsonDictionary
 
 from .utils import make_dict
+from . import parametrize
 
 
-class JsonDictionaryTestCase(unittest.TestCase):
+LOAD_TESTS = (
+    lambda: ('{"S": "a"}', {('S', ): 'a'}),
+    # Default encoding is utf-8.
+    lambda: ('{"S": "café"}', {('S', ): 'café'}),
+    # But if that fails, the implementation
+    # must automatically retry with latin-1.
+    lambda: ('{"S": "café"}'.encode('latin-1'), {('S', ): 'café'}),
+    # Invalid JSON.
+    lambda: ('{"foo", "bar",}', ValueError),
+    # Invalid JSON.
+    lambda: ('foo', ValueError),
+    # Cannot convert to dict.
+    lambda: ('"foo"', ValueError),
+    # Ditto.
+    lambda: ('4.2', TypeError),
+)
 
-    def test_load_dictionary(self):
+@parametrize(LOAD_TESTS)
+def test_load_dictionary(contents, expected):
+    if isinstance(contents, str):
+        contents = contents.encode('utf-8')
+    with make_dict(contents) as filename:
+        if inspect.isclass(expected):
+            with pytest.raises(expected):
+                JsonDictionary.load(filename)
+        else:
+            d = JsonDictionary.load(filename)
+            assert dict(d.items()) == expected
 
-        for contents, expected in (
-            (u'{"S": "a"}'.encode('utf-8'), {('S', ): u'a'}),
-            # Default encoding is utf-8.
-            (u'{"S": "café"}'.encode('utf-8'), {('S', ): u'café'}),
-            # But if that fails, the implementation
-            # must automatically retry with latin-1.
-            (u'{"S": "café"}'.encode('latin-1'), {('S', ): u'café'}),
-        ):
-            with make_dict(contents) as filename:
-                d = JsonDictionary.load(filename)
-                self.assertEqual(dict(d.items()), expected)
 
-        for contents, exception in (
-            # Invalid JSON.
-            (u'{"foo", "bar",}', ValueError),
-            # Invalid JSON.
-            (u'foo', ValueError),
-            # Cannot convert to dict.
-            (u'"foo"', ValueError),
-            # Ditto.
-            (u'4.2', TypeError),
-        ):
-            with make_dict(contents.encode('utf-8')) as filename:
-                self.assertRaises(exception, JsonDictionary.load, filename)
+SAVE_TESTS = (
+    # Simple test.
+    lambda: ({('S', ): 'a'},
+             '{\n"S": "a"\n}'),
+    # Check strokes format: '/' separated.
+    lambda: ({('SAPL', '-PL'): 'sample'},
+             '{\n"SAPL/-PL": "sample"\n}'),
+    # Contents should be saved as UTF-8, no escaping.
+    lambda: ({('S', ): 'café'},
+             '{\n"S": "café"\n}'),
+    # Check escaping of special characters.
+    lambda: ({('S', ): '{^"\n\t"^}'},
+             '{\n"S": "' + r'{^\"\n\t\"^}' + '"\n}'),
+    # Keys are sorted on save.
+    lambda: ({('B', ): 'bravo', ('A', ): 'alpha', ('C', ): 'charlie'},
+             '{\n"A": "alpha",\n"B": "bravo",\n"C": "charlie"\n}'),
+)
 
-    def test_save_dictionary(self):
-        for contents, expected in (
-            # Simple test.
-            ({('S', ): 'a'},
-             u'{\n"S": "a"\n}'),
-            # Check strokes format: '/' separated.
-            ({('SAPL', '-PL'): u'sample'},
-             u'{\n"SAPL/-PL": "sample"\n}'),
-            # Contents should be saved as UTF-8, no escaping.
-            ({('S', ): u'café'},
-             u'{\n"S": "café"\n}'),
-            # Check escaping of special characters.
-            ({('S', ): u'{^"\n\t"^}'},
-             u'{\n"S": "' + r'{^\"\n\t\"^}' + u'"\n}'),
-            # Keys are sorted on save.
-            ({('B', ): u'bravo', ('A', ): u'alpha', ('C', ): u'charlie'},
-             u'{\n"A": "alpha",\n"B": "bravo",\n"C": "charlie"\n}'),
-        ):
-            with make_dict(b'foo') as filename:
-                d = JsonDictionary.create(filename)
-                d.update(contents)
-                d.save()
-                with open(filename, 'rb') as fp:
-                    contents = fp.read().decode('utf-8')
-                self.assertEqual(contents, expected)
+@parametrize(SAVE_TESTS)
+def test_save_dictionary(contents, expected):
+    with make_dict(b'foo') as filename:
+        d = JsonDictionary.create(filename)
+        d.update(contents)
+        d.save()
+        with open(filename, 'rb') as fp:
+            contents = fp.read().decode('utf-8')
+        assert contents == expected

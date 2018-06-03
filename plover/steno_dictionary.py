@@ -11,13 +11,10 @@ import collections
 import os
 import shutil
 
-# Python 2/3 compatibility.
-from six import iteritems
-
 from plover.resource import ASSET_SCHEME, resource_filename, resource_timestamp
 
 
-class StenoDictionary(object):
+class StenoDictionary:
     """A steno dictionary.
 
     This dictionary maps immutable sequences to translations and tracks the
@@ -28,6 +25,10 @@ class StenoDictionary(object):
     timestamp -- File last modification time, used to detect external changes.
 
     """
+
+    # False if class support creation.
+    readonly = False
+
     def __init__(self):
         self._dict = {}
         self._longest_key_length = 0
@@ -50,9 +51,9 @@ class StenoDictionary(object):
     @classmethod
     def create(cls, resource):
         assert not resource.startswith(ASSET_SCHEME)
-        d = cls()
-        if d.readonly:
+        if cls.readonly:
             raise ValueError('%s does not support creation' % cls.__name__)
+        d = cls()
         d.path = resource
         return d
 
@@ -108,10 +109,7 @@ class StenoDictionary(object):
         self._longest_key = 0
 
     def items(self):
-        return iteritems(self._dict)
-
-    def iteritems(self):
-        return iteritems(self._dict)
+        return self._dict.items()
 
     def update(self, *args, **kwargs):
         assert not self.readonly
@@ -121,7 +119,7 @@ class StenoDictionary(object):
         casereverse = self.casereverse
         for iterable in args + (kwargs,):
             if isinstance(iterable, (dict, StenoDictionary)):
-                iterable = iteritems(iterable)
+                iterable = iterable.items()
             for key, value in iterable:
                 longest_key = max(longest_key, len(key))
                 _dict[key] = value
@@ -181,7 +179,7 @@ class StenoDictionary(object):
         self._longest_listener_callbacks.remove(callback)
 
 
-class StenoDictionaryCollection(object):
+class StenoDictionaryCollection:
 
     def __init__(self, dicts=[]):
         self.dicts = []
@@ -234,7 +232,7 @@ class StenoDictionaryCollection(object):
             if not d.enabled:
                 continue
             for k in d.reverse_lookup(value):
-                # Ignore key if it's overriden by a higher priority dictionary.
+                # Ignore key if it's overridden by a higher priority dictionary.
                 if self._lookup(k, dicts=self.dicts[:n]) is None:
                     keys.append(k)
         return keys

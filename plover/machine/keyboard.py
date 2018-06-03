@@ -5,6 +5,7 @@
 "For use with a computer keyboard (preferably NKRO) as a steno machine."
 
 from plover.machine.base import StenotypeBase
+from plover.misc import boolean
 from plover.oslayer.keyboardcontrol import KeyboardCapture
 
 
@@ -22,7 +23,7 @@ class Keyboard(StenotypeBase):
 
     def __init__(self, params):
         """Monitor the keyboard's events."""
-        super(Keyboard, self).__init__()
+        super().__init__()
         self._arpeggiate = params['arpeggiate']
         self._is_suppressed = False
         # Currently held keys.
@@ -56,7 +57,7 @@ class Keyboard(StenotypeBase):
         self._suppress()
 
     def set_keymap(self, keymap):
-        super(Keyboard, self).set_keymap(keymap)
+        super().set_keymap(keymap)
         self._update_bindings()
 
     def start_capture(self):
@@ -111,7 +112,7 @@ class Keyboard(StenotypeBase):
         ):
             return
         self._last_stroke_key_down_count = self._stroke_key_down_count
-        steno_keys = set(self._bindings.get(k) for k in self._stroke_keys)
+        steno_keys = {self._bindings.get(k) for k in self._stroke_keys}
         steno_keys -= {None}
         if steno_keys:
             self._notify(steno_keys)
@@ -120,7 +121,6 @@ class Keyboard(StenotypeBase):
 
     @classmethod
     def get_option_info(cls):
-        bool_converter = lambda s: s == 'True'
         return {
-            'arpeggiate': (False, bool_converter),
+            'arpeggiate': (False, boolean),
         }

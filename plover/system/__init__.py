@@ -20,7 +20,7 @@ def _load_wordlist(filename):
     with open(path, encoding='utf-8') as f:
         pairs = [word.strip().rsplit(' ', 1) for word in f]
         pairs.sort(reverse=True, key=lambda x: int(x[1]))
-        words = {p[0].lower(): int(p[1]) for p in pairs}
+        words = {p[0]: int(p[1]) for p in pairs}
     return words
 
 def _key_order(keys, numbers):
@@ -44,8 +44,8 @@ _EXPORTS = {
     'SUFFIX_KEYS'              : lambda mod: _suffix_keys(mod.SUFFIX_KEYS),
     'UNDO_STROKE_STENO'        : lambda mod: mod.UNDO_STROKE_STENO,
     'IMPLICIT_HYPHEN_KEYS'     : lambda mod: set(mod.IMPLICIT_HYPHEN_KEYS),
-    'IMPLICIT_HYPHENS'         : lambda mod: set(l.replace('-', '')
-                                                 for l in mod.IMPLICIT_HYPHEN_KEYS),
+    'IMPLICIT_HYPHENS'         : lambda mod: {l.replace('-', '')
+                                              for l in mod.IMPLICIT_HYPHEN_KEYS},
     'ORTHOGRAPHY_WORDS'        : lambda mod: _load_wordlist(mod.ORTHOGRAPHY_WORDLIST),
     'ORTHOGRAPHY_RULES'        : lambda mod: [(re.compile(pattern, re.I), replacement)
                                               for pattern, replacement in mod.ORTHOGRAPHY_RULES],

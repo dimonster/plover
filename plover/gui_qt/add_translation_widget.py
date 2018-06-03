@@ -1,68 +1,75 @@
 
 from collections import namedtuple
+from html import escape as html_escape
 
 from PyQt5.QtCore import QEvent
+from PyQt5.QtWidgets import QApplication, QWidget
 
 from plover.misc import shorten_path
-from plover.steno import normalize_steno
+from plover.steno import normalize_steno, sort_steno_strokes
 from plover.engine import StartingStrokeState
 from plover.translation import escape_translation, unescape_translation
+from plover.formatting import RetroFormatter
 
-from plover.gui_qt.add_translation_ui import Ui_AddTranslation
+from plover.gui_qt.add_translation_widget_ui import Ui_AddTranslationWidget
 from plover.gui_qt.i18n import get_gettext
-from plover.gui_qt.tool import Tool
-
 
 _ = get_gettext()
 
 
-class AddTranslation(Tool, Ui_AddTranslation):
+class AddTranslationWidget(QWidget, Ui_AddTranslationWidget):
 
     ''' Add a new translation to the dictionary. '''
 
-    TITLE = _('Add Translation')
-    ICON = ':/translation_add.svg'
-    ROLE = 'add_translation'
-    SHORTCUT = 'Ctrl+N'
-
     EngineState = namedtuple('EngineState', 'dictionary_filter translator starting_stroke')
 
-    def __init__(self, engine, dictionary_path=None):
-        super(AddTranslation, self).__init__(engine)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.setupUi(self)
+        engine = QApplication.instance().engine
+        self._engine = engine
         self._dictionaries = []
         self._reverse_order = False
-        self._selected_dictionary = dictionary_path
+        self._selected_dictionary = None
         engine.signal_connect('config_changed', self.on_config_changed)
         self.on_config_changed(engine.config)
         engine.signal_connect('dictionaries_loaded', self.on_dictionaries_loaded)
         self.on_dictionaries_loaded(self._engine.dictionaries)
-        self.installEventFilter(self)
+
+        self._special_fmt = (
+            '<span style="' +
+            'background-color:' + self.palette().base().color().name() +';' +
+            'font-family:monospace;' +
+            '">%s</span>'
+        )
+
         self.strokes.installEventFilter(self)
         self.translation.installEventFilter(self)
 
-        # Pre-populate the strokes or translations with last stroke/word.
-        last_translation = None
-        for t in reversed(engine.translator_state.translations):
-            # Find the last undoable stroke.
-            if t.has_undo():
-                last_translation = t
-                break
-        if last_translation:
-            # Grab the last-formatted word
-            last_word = last_translation.formatting[-1].word
-            if last_word:
-                # If the last translation was created with the dictionary...
-                if last_translation.english:
-                    self.translation.setText(last_word.strip())
-                    self.on_translation_edited()
-                # Otherwise, it's just raw steno
-                else:
-                    self.strokes.setText(last_word.strip())
-                    self.on_strokes_edited()
-                    self.strokes.selectAll()
-
         with engine:
+
+            # Pre-populate the strokes or translations with last stroke/word.
+            last_translations = engine.translator_state.translations
+            translation = None
+            for t in reversed(last_translations):
+                # Find the last undoable stroke.
+                if t.has_undo():
+                    translation = t
+                    break
+            # Is it a raw stroke?
+            if translation is not None and not translation.english:
+                # Yes.
+                self.strokes.setText(translation.formatting[0].text)
+                self.on_strokes_edited()
+                self.strokes.selectAll()
+            else:
+                # No, grab the last-formatted word.
+                retro_formatter = RetroFormatter(last_translations)
+                last_words = retro_formatter.last_words(strip=True)
+                if last_words:
+                    self.translation.setText(last_words[0])
+                    self.on_translation_edited()
+
             self._original_state = self.EngineState(None,
                                                     engine.translator_state,
                                                     engine.starting_stroke_state)
@@ -76,20 +83,20 @@ class AddTranslation(Tool, Ui_AddTranslation):
                                                         StartingStrokeState(True, False))
         self._engine_state = self._original_state
         self._focus = None
-        self.restore_state()
-        self.finished.connect(self.save_state)
+
+    def select_dictionary(self, dictionary_path):
+        self._selected_dictionary = dictionary_path
+        self._update_items()
 
     def eventFilter(self, watched, event):
-        if watched == self and event.type() == QEvent.ActivationChange:
-            if not self.isActiveWindow():
+        if event.type() == QEvent.FocusIn:
+            if watched == self.strokes:
+                self._focus_strokes()
+            elif watched == self.translation:
+                self._focus_translation()
+        elif event.type() == QEvent.FocusOut:
+            if watched in (self.strokes, self.translation):
                 self._unfocus()
-            return False
-        if event.type() != QEvent.FocusIn:
-            return False
-        if watched == self.strokes:
-            self._focus_strokes()
-        elif watched == self.translation:
-            self._focus_translation()
         return False
 
     def _set_engine_state(self, state):
@@ -105,7 +112,10 @@ class AddTranslation(Tool, Ui_AddTranslation):
 
     @staticmethod
     def _dictionary_filter(key, value):
-        # Only allow translations with special entries. Do this by looking for
+        # Allow undo...
+        if value == '=undo':
+            return False
+        # ...and translations with special entries. Do this by looking for
         # braces but take into account escaped braces and slashes.
         escaped = value.replace('\\\\', '').replace('\\{', '')
         special = '{#'  in escaped or '{PLOVER:' in escaped
@@ -193,12 +203,6 @@ class AddTranslation(Tool, Ui_AddTranslation):
             self._update_items(dictionaries=dictionaries)
 
     def on_config_changed(self, config_update):
-        if 'translation_frame_opacity' in config_update:
-            opacity = config_update.get('translation_frame_opacity')
-            if opacity is None:
-                return
-            assert 0 <= opacity <= 100
-            self.setWindowOpacity(opacity / 100.0)
         if 'classic_dictionaries_display_order' in config_update:
             self._update_items(reverse_order=config_update['classic_dictionaries_display_order'])
 
@@ -207,17 +211,23 @@ class AddTranslation(Tool, Ui_AddTranslation):
             index = len(self._dictionaries) - index - 1
         self._selected_dictionary = self._dictionaries[index].path
 
+    def _format_label(self, fmt, strokes, translation):
+        if strokes:
+            strokes = ', '.join(self._special_fmt % html_escape('/'.join(s))
+                                for s in sort_steno_strokes(strokes))
+        if translation:
+            translation = self._special_fmt % html_escape(escape_translation(translation))
+        return fmt.format(strokes=strokes, translation=translation)
+
     def on_strokes_edited(self):
         strokes = self._strokes()
         if strokes:
             translation = self._engine.raw_lookup(strokes)
-            strokes = '/'.join(strokes)
             if translation is not None:
-                fmt = _('{strokes} maps to "{translation}"')
-                translation = escape_translation(translation)
+                fmt = _('{strokes} maps to {translation}')
             else:
                 fmt = _('{strokes} is not in the dictionary')
-            info = fmt.format(strokes=strokes, translation=translation)
+            info = self._format_label(fmt, (strokes,), translation)
         else:
             info = ''
         self.strokes_info.setText(info)
@@ -226,18 +236,16 @@ class AddTranslation(Tool, Ui_AddTranslation):
         translation = self._translation()
         if translation:
             strokes = self._engine.reverse_lookup(translation)
-            translation = escape_translation(translation)
             if strokes:
-                fmt = _('"{translation}" is mapped from {strokes}')
-                strokes = ', '.join('/'.join(x) for x in strokes)
+                fmt = _('{translation} is mapped to: {strokes}')
             else:
-                fmt = _('"{translation}" is not in the dictionary')
-            info = fmt.format(strokes=strokes, translation=translation)
+                fmt = _('{translation} is not in the dictionary')
+            info = self._format_label(fmt, strokes, translation)
         else:
             info = ''
         self.translation_info.setText(info)
 
-    def accept(self):
+    def save_entry(self):
         self._unfocus()
         strokes = self._strokes()
         translation = self._translation()
@@ -246,11 +254,11 @@ class AddTranslation(Tool, Ui_AddTranslation):
             if self._reverse_order:
                 index = -index - 1
             dictionary = self._dictionaries[index]
+            old_translation = self._engine.dictionaries[dictionary.path].get(strokes)
             self._engine.add_translation(strokes, translation,
                                          dictionary_path=dictionary.path)
-        super(AddTranslation, self).accept()
+            return dictionary, strokes, old_translation, translation
 
     def reject(self):
         self._unfocus()
         self._set_engine_state(self._original_state)
-        super(AddTranslation, self).reject()

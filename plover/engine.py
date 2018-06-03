@@ -1,16 +1,14 @@
 
 from collections import namedtuple, OrderedDict
 from functools import wraps
+from queue import Queue
 import os
 import shutil
 import threading
 
-# Python 2/3 compatibility.
-from six.moves.queue import Queue
-
 from plover import log, system
 from plover.dictionary.loading_manager import DictionaryLoadingManager
-from plover.exception import DictionaryLoaderException, InvalidConfigurationError
+from plover.exception import DictionaryLoaderException
 from plover.formatting import Formatter
 from plover.misc import shorten_path
 from plover.registry import registry
@@ -30,8 +28,9 @@ class ErroredDictionary(StenoDictionary):
     """ Placeholder for dictionaries that failed to load. """
 
     def __init__(self, path, exception):
-        super(ErroredDictionary, self).__init__()
+        super().__init__()
         self.enabled = False
+        self.readonly = True
         self.path = path
         self.exception = exception
 
@@ -73,7 +72,7 @@ def with_lock(func):
     return _with_lock
 
 
-class StenoEngine(object):
+class StenoEngine:
 
     HOOKS = '''
     stroked
@@ -146,7 +145,7 @@ class StenoEngine(object):
             self._machine = None
 
     def _start(self):
-        self._set_output(self._config.get_auto_start())
+        self._set_output(self._config['auto_start'])
         self._update(full=True)
 
     def _set_dictionaries(self, dictionaries):
@@ -181,12 +180,6 @@ class StenoEngine(object):
                 for option, value in config.items()
                 if value != original_config[option]
             }
-            if 'machine_type' in config_update:
-                for opt in (
-                    'machine_specific_options',
-                    'system_keymap',
-                ):
-                    config_update[opt] = config[opt]
         # Update logging.
         log.set_stroke_filename(config['log_file_name'])
         log.enable_stroke_logging(config['enable_stroke_logging'])
@@ -218,10 +211,7 @@ class StenoEngine(object):
                 self._machine = None
             machine_type = config['machine_type']
             machine_options = config['machine_specific_options']
-            try:
-                machine_class = registry.get_plugin('machine', machine_type).obj
-            except Exception as e:
-                raise InvalidConfigurationError(str(e))
+            machine_class = registry.get_plugin('machine', machine_type).obj
             log.info('setting machine: %s', machine_type)
             self._machine = machine_class(machine_options)
             self._machine.set_suppression(self._is_running)
@@ -292,8 +282,10 @@ class StenoEngine(object):
             extension.stop()
             del extension
 
-    def _quit(self):
+    def _quit(self, code):
         self._stop()
+        self.code = code
+        self._trigger_hook('quit')
         return True
 
     def _toggle_output(self):
@@ -321,7 +313,7 @@ class StenoEngine(object):
     def _on_machine_state_changed(self, machine_state):
         assert machine_state is not None
         self._machine_state = machine_state
-        machine_type = self._config.get_machine_type()
+        machine_type = self._config['machine_type']
         self._trigger_hook('machine_state_changed', machine_type, machine_state)
 
     def _consume_engine_command(self, command):
@@ -333,7 +325,7 @@ class StenoEngine(object):
             self._toggle_output()
             return True
         elif command == 'QUIT':
-            self._trigger_hook('quit')
+            self.quit()
             return True
         if not self._is_running:
             return False
@@ -418,6 +410,13 @@ class StenoEngine(object):
     def config(self, update):
         self._same_thread_hook(self._update, config_update=update)
 
+    @with_lock
+    def __getitem__(self, setting):
+        return self._config[setting]
+
+    def __setitem__(self, setting, value):
+        self.config = {setting: value}
+
     def reset_machine(self):
         self._same_thread_hook(self._update, reset_machine=True)
 
@@ -426,7 +425,7 @@ class StenoEngine(object):
             with open(self._config.target_file, 'rb') as f:
                 self._config.load(f)
         except Exception:
-            log.error('loading configuration failed, reseting to default', exc_info=True)
+            log.error('loading configuration failed, resetting to default', exc_info=True)
             self._config.clear()
             return False
         return True
@@ -434,16 +433,17 @@ class StenoEngine(object):
     def start(self):
         self._same_thread_hook(self._start)
 
-    def quit(self):
-        self._same_thread_hook(self._quit)
+    def quit(self, code=0):
+        # We need to go through the queue, even when already called
+        # from the engine thread so _quit's return code does break
+        # the thread out of its main loop.
+        self._queue.put((self._quit, (code,), {}))
 
-    @with_lock
-    def machine_specific_options(self, machine_type):
-        return self._config.get_machine_specific_options(machine_type)
+    def restart(self):
+        self.quit(-1)
 
-    @with_lock
-    def system_keymap(self, machine_type, system_name):
-        return self._config.get_system_keymap(machine_type, system_name)
+    def join(self):
+        return self.code
 
     @with_lock
     def lookup(self, translation):

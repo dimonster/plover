@@ -3,11 +3,11 @@ from collections import namedtuple
 
 import pkg_resources
 
-from plover.oslayer.config import PLUGINS_PLATFORM
+from plover.oslayer.config import HAS_GUI_QT, PLUGINS_PLATFORM
 from plover import log
 
 
-class Plugin(object):
+class Plugin:
 
     def __init__(self, plugin_type, name, obj):
         self.plugin_type = plugin_type
@@ -22,21 +22,25 @@ class Plugin(object):
 PluginDistribution = namedtuple('PluginDistribution', 'dist plugins')
 
 
-class Registry(object):
+class Registry:
 
     PLUGIN_TYPES = (
         'command',
         'dictionary',
         'extension',
         'gui',
+        'gui.qt.machine_option',
         'gui.qt.tool',
         'machine',
+        'macro',
+        'meta',
         'system',
     )
 
-    def __init__(self):
+    def __init__(self, suppress_errors=True):
         self._plugins = {}
         self._distributions = {}
+        self._suppress_errors = suppress_errors
         for plugin_type in self.PLUGIN_TYPES:
             self._plugins[plugin_type] = {}
 
@@ -46,13 +50,15 @@ class Registry(object):
         return plugin
 
     def register_plugin_from_entrypoint(self, plugin_type, entrypoint):
-        log.info('%s: %s (from %s)', plugin_type,
-                 entrypoint.name, entrypoint.dist)
+        log.info('%s: %s (from %s in %s)', plugin_type, entrypoint.name,
+                 entrypoint.dist, entrypoint.dist.location)
         try:
-            obj = entrypoint.resolve()
+            obj = entrypoint.load()
         except:
             log.error('error loading %s plugin: %s (from %s)', plugin_type,
                       entrypoint.name, entrypoint.module_name, exc_info=True)
+            if not self._suppress_errors:
+                raise
         else:
             plugin = self.register_plugin(plugin_type, entrypoint.name, obj)
             # Keep track of distributions providing plugins.
@@ -75,8 +81,12 @@ class Registry(object):
 
     def update(self):
         for plugin_type in self.PLUGIN_TYPES:
+            if plugin_type.startswith('gui.qt.') and not HAS_GUI_QT:
+                continue
             entrypoint_type = 'plover.%s' % plugin_type
             for entrypoint in pkg_resources.iter_entry_points(entrypoint_type):
+                if 'gui_qt' in entrypoint.extras and not HAS_GUI_QT:
+                    continue
                 self.register_plugin_from_entrypoint(plugin_type, entrypoint)
             if PLUGINS_PLATFORM is not None:
                 entrypoint_type = 'plover.%s.%s' % (PLUGINS_PLATFORM, plugin_type)

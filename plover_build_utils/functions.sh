@@ -69,33 +69,6 @@ err()
   info -c31 "$@"
 }
 
-find_dist()
-{
-  if ! [ -r /etc/lsb-release ]
-  then
-    if [ -r /etc/arch-release ]
-    then
-      echo arch
-      return
-    fi
-    err "unsuported distribution: $dist"
-    return 1
-  fi
-  dist="$(lsb_release -i -s | tr A-Z a-z)"
-  case "$dist" in
-    arch)
-      echo 'arch'
-      ;;
-    linuxmint|ubuntu)
-      echo 'ubuntu'
-      ;;
-    *)
-      err "unsuported distribution: $dist"
-      return 1
-      ;;
-  esac
-}
-
 run()
 {
   info "$@"
@@ -122,7 +95,7 @@ run_eval()
 
 get_pip()
 {
-  run "$python" -m utils.get_pip "$@"
+  run "$python" -m plover_build_utils.get_pip "$@"
 }
 
 # Crude version of wheels_install, that will work
@@ -137,7 +110,7 @@ pip_install()
 
 wheels_install()
 {
-  run "$python" -m utils.install_wheels "$@"
+  run "$python" -m plover_build_utils.install_wheels "$@"
 }
 
 # Crude version of https://github.com/jaraco/rwt
@@ -154,8 +127,10 @@ rwt()
     rwt_args+=("$1")
     shift
   done
-  wheels_install -t "$PWD/.rwt" "${rwt_args[@]}"
   run export PYTHONPATH="$PWD/.rwt${PYTHONPATH:+:$PYTHONPATH}"
+  get_pip -t "$PWD/.rwt"
+  wheels_install -t "$PWD/.rwt" "${rwt_args[@]}"
+  find "$PWD/.rwt" -name '*-info'
   "$@"
   run rm -rf .rwt
 )}
@@ -165,11 +140,9 @@ bootstrap_dev()
   # Install/upgrade pip/wheel.
   get_pip --upgrade "$@"
   # Install requirements.
-  # Note: install Cython first to speed up hidapi install.
-  wheels_install Cython "$@"
   wheels_install -r requirements.txt "$@"
   # List installed Python packages.
-  run "$python" -m pip list --format=columns
+  run "$python" -m pip list --format=freeze
 }
 
 bootstrap_dist()
@@ -178,12 +151,17 @@ bootstrap_dist()
   shift
   # Install pip/wheel...
   get_pip "$@"
-  # Install Plover and dependencies.
-  # Note: temporarily install Cython so building cython-hidapi's wheel is faster.
-  rwt Cython -- wheels_install -r requirements_distribution.txt "$@"
-  wheels_install --ignore-installed --no-deps "$wheel" "$@"
-  # List installed Python packages.
-  run "$python" -m pip list --format=columns
+  # Install Plover and its dependencies, as well as standard plugins.
+  # Note:
+  #  - temporarily install Cython to speedup cython-hidapi's install
+  #  - remove `plover.egg-info` beforehand so pip does not think
+  #    Plover is already installed
+  run rm -rf plover.egg-info
+  rwt Cython -- wheels_install \
+    -r requirements_distribution.txt "$wheel" \
+    -r requirements_plugins.txt "$@"
+  # Avoid caching Plover's wheel.
+  rm "$wheels/$(basename "$wheel")"
 }
 
 parse_opts args "$@"

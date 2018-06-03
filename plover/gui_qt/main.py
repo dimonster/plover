@@ -1,7 +1,3 @@
-# Python 2/3 compatibility.
-from __future__ import print_function
-
-import sys
 import signal
 
 from PyQt5.QtCore import (
@@ -22,7 +18,7 @@ from plover.gui_qt.engine import Engine
 from plover.gui_qt.i18n import get_language, install_gettext
 
 
-class Application(object):
+class Application:
 
     def __init__(self, config, use_qt_notifications):
 
@@ -51,7 +47,12 @@ class Application(object):
 
         QApplication.setQuitOnLastWindowClosed(False)
 
-        signal.signal(signal.SIGINT, lambda signum, stack: QCoreApplication.quit())
+        self._app.engine = self._engine = Engine(config, KeyboardEmulation())
+        # On macOS, quitting through the dock will result
+        # in a direct call to `QCoreApplication.quit`.
+        self._app.aboutToQuit.connect(self._app.engine.quit)
+
+        signal.signal(signal.SIGINT, lambda signum, stack: self._engine.quit())
 
         # Make sure the Python interpreter runs at least every second,
         # so signals have a chance to be processed.
@@ -59,11 +60,7 @@ class Application(object):
         self._timer.timeout.connect(lambda: None)
         self._timer.start(1000)
 
-        self._engine = Engine(config, KeyboardEmulation())
-
         self._win = MainWindow(self._engine, use_qt_notifications)
-
-        self._app.aboutToQuit.connect(self._win.on_quit)
 
     def __del__(self):
         del self._win
@@ -73,8 +70,7 @@ class Application(object):
 
     def run(self):
         self._app.exec_()
-        self._engine.quit()
-        self._engine.wait()
+        return self._engine.join()
 
 
 def show_error(title, message):
@@ -85,13 +81,10 @@ def show_error(title, message):
 
 
 def main(config):
-
     # Setup internationalization support.
     install_gettext()
-
     use_qt_notifications = not log.has_platform_handler()
     app = Application(config, use_qt_notifications)
-    app.run()
+    code = app.run()
     del app
-
-    return 0
+    return code
