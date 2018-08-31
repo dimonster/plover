@@ -453,8 +453,14 @@ class OutputHelper:
         # 2
         # >>> len(unicodedata.normalize('NFC', u"C\u0327"))
         # 1
-        after = self.after.appended_text
-        before = self.after.replaced_text + self.before.appended_text
+        if len(self.before.replaced_text) > len(self.after.replaced_text):
+            assert self.before.replaced_text.endswith(self.after.replaced_text)
+            replaced_text = self.before.replaced_text
+        else:
+            assert self.after.replaced_text.endswith(self.before.replaced_text)
+            replaced_text = self.after.replaced_text
+        before = replaced_text[:len(replaced_text)-len(self.before.replaced_text)] + self.before.appended_text
+        after = replaced_text[:len(replaced_text)-len(self.after.replaced_text)] + self.after.appended_text
         common_length = len(commonprefix([before, after]))
         erased = len(before) - common_length
         if erased:
@@ -470,8 +476,6 @@ class OutputHelper:
         for action in self.before.render(undo, last_action):
             pass
         # Render new actions.
-        if self.before.replaced_text:
-            self.after.appended_text = self.before.replaced_text
         for action in self.after.render(do, last_action):
             self.flush()
             if action.combo:
@@ -771,7 +775,9 @@ def _apply_meta_attach(meta, ctx):
     ):
         new_word = add_suffix(last_word, meta)
         common_len = len(commonprefix([last_word, new_word]))
-        action.prev_replace = last_word[common_len:]
+        replaced = last_word[common_len:]
+        action.prev_replace = ctx.last_text(len(replaced))
+        assert replaced.lower() == action.prev_replace.lower()
         last_word = last_word[:common_len]
         meta = new_word[common_len:]
     action.text = meta
